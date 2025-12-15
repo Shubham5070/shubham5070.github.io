@@ -129,9 +129,10 @@ btn.onclick = async () => {
     
     const generator = await pipeline(
       "text-generation",
-      "Xenova/distilgpt2",
+      "Xenova/phi-2",
       { device: "cpu" }
     );
+
 
 
     stopHB();
@@ -156,5 +157,6 @@ btn.onclick = async () => {
 
 </body>
 </html>
+
 
 
