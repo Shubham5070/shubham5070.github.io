@@ -1,81 +1,163 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Case-1 Local LLM Test (Qwen2 0.5B)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8" />
+<title>Case-1 Debug – Local LLM</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      background: #0f172a;
-      color: #e5e7eb;
-      padding: 20px;
-    }
-    button {
-      padding: 10px 16px;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 10px;
-    }
-    pre {
-      background: #020617;
-      padding: 12px;
-      border-radius: 6px;
-      overflow-x: auto;
-      max-height: 400px;
-    }
-    .ok { color: #22c55e; }
-    .err { color: #ef4444; }
-    .info { color: #38bdf8; }
-  </style>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background: #020617;
+  color: #e5e7eb;
+  padding: 20px;
+}
+button {
+  padding: 12px 18px;
+  font-size: 16px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+#status {
+  margin-top: 15px;
+  font-weight: bold;
+}
+#progress {
+  width: 100%;
+  height: 14px;
+  background: #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+#bar {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+}
+pre {
+  background: #020617;
+  border: 1px solid #1e293b;
+  padding: 10px;
+  margin-top: 15px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+#errorBox {
+  display: none;
+  background: #7f1d1d;
+  color: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+</style>
 </head>
 
 <body>
-  <h2>🧪 Case-1: Fully Local Browser LLM</h2>
-  <p>
-    Model: <b>Qwen2-0.5B-Instruct (CPU / WASM)</b><br>
-    Environment: Browser-only (no backend)
-  </p>
 
-  <button id="loadBtn">Load Model</button>
-  <button id="runBtn" disabled>Run Test Prompt</button>
+<h2>🧪 Case-1 Browser LLM – Debug Mode</h2>
 
-  <pre id="log"></pre>
+<button id="loadBtn">Load Model</button>
+<button id="runBtn" disabled>Run Prompt</button>
+
+<div id="status">Idle</div>
+
+<div id="progress">
+  <div id="bar"></div>
+</div>
+
+<div id="errorBox"></div>
+
+<pre id="log"></pre>
 
 <script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+
 /* ============================================================
-   IMPORTANT: MUST BE SERVED OVER HTTPS (GitHub Pages)
+   FORCE SAFE EXECUTION
 ============================================================ */
-
-import {
-  pipeline,
-  env
-} from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
-
-/* ---------- FORCE SAFE EXECUTION ---------- */
 env.allowLocalModels = false;
 env.useBrowserCache = true;
-env.backends.webgpu.enabled = false; // ❌ GPU OFF
-env.backends.wasm.enabled = true;     // ✅ CPU WASM
+env.backends.webgpu.enabled = false;
+env.backends.wasm.enabled = true;
 env.backends.onnx.wasm.numThreads = 1;
 
-/* ---------- UI ---------- */
+/* ============================================================
+   UI HELPERS
+============================================================ */
 const logBox = document.getElementById("log");
+const statusEl = document.getElementById("status");
+const bar = document.getElementById("bar");
+const errorBox = document.getElementById("errorBox");
 const loadBtn = document.getElementById("loadBtn");
 const runBtn = document.getElementById("runBtn");
 
-function log(msg, cls = "info") {
-  logBox.innerHTML += `<div class="${cls}">${msg}</div>`;
+function log(msg) {
+  logBox.textContent += msg + "\n";
   logBox.scrollTop = logBox.scrollHeight;
 }
+function status(msg) {
+  statusEl.textContent = msg;
+  log("STATUS: " + msg);
+}
+function error(msg) {
+  errorBox.style.display = "block";
+  errorBox.textContent = msg;
+  log("ERROR: " + msg);
+}
 
-/* ---------- LLM ---------- */
+/* ============================================================
+   FETCH INTERCEPTOR – DOWNLOAD PROGRESS
+============================================================ */
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  const response = await originalFetch(...args);
+
+  if (!response.body || !response.headers.get("content-length")) {
+    return response;
+  }
+
+  const total = parseInt(response.headers.get("content-length"), 10);
+  let loaded = 0;
+
+  const reader = response.body.getReader();
+  const stream = new ReadableStream({
+    start(controller) {
+      function push() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            controller.close();
+            return;
+          }
+          loaded += value.byteLength;
+          const percent = Math.min(100, Math.round((loaded / total) * 100));
+          bar.style.width = percent + "%";
+          status(`Downloading model… ${percent}%`);
+          controller.enqueue(value);
+          push();
+        }).catch(err => {
+          error("Stream read failed: " + err.message);
+        });
+      }
+      push();
+    }
+  });
+
+  return new Response(stream, { headers: response.headers });
+};
+
+/* ============================================================
+   LOAD MODEL
+============================================================ */
 let generator = null;
 
 loadBtn.onclick = async () => {
   try {
-    log("🔄 Loading model… (first load = slow)", "info");
+    bar.style.width = "0%";
+    errorBox.style.display = "none";
+    status("Initializing pipeline…");
 
     generator = await pipeline(
       "text-generation",
@@ -86,37 +168,34 @@ loadBtn.onclick = async () => {
       }
     );
 
-    log("✅ Model loaded successfully!", "ok");
+    status("✅ Model loaded successfully");
     runBtn.disabled = false;
 
-  } catch (err) {
-    console.error(err);
-    log("❌ Model load failed", "err");
-    log(err.message || err.toString(), "err");
+  } catch (e) {
+    error(e.message || String(e));
   }
 };
 
+/* ============================================================
+   RUN PROMPT
+============================================================ */
 runBtn.onclick = async () => {
   try {
-    log("▶️ Running inference…", "info");
+    status("Running inference…");
 
     const out = await generator(
       "User: Order two veg pizzas and one coke\nAssistant:",
-      {
-        max_new_tokens: 60,
-        temperature: 0.3
-      }
+      { max_new_tokens: 50 }
     );
 
-    log("🧠 LLM Output:", "ok");
-    log(out[0].generated_text, "info");
+    status("Inference complete");
+    log(out[0].generated_text);
 
-  } catch (err) {
-    console.error(err);
-    log("❌ Inference failed", "err");
-    log(err.message || err.toString(), "err");
+  } catch (e) {
+    error(e.message || String(e));
   }
 };
 </script>
+
 </body>
 </html>
