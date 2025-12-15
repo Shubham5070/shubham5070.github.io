@@ -126,12 +126,13 @@ btn.onclick = async () => {
     await new Promise(r => setTimeout(r, 100));
 
     state("Creating pipeline…");
-
+    
     const generator = await pipeline(
       "text-generation",
-      "Xenova/tiny-random-LlamaForCausalLM",
+      "Xenova/distilgpt2",
       { device: "cpu" }
     );
+
 
     stopHB();
     state("✅ Model Loaded", "ok");
@@ -155,4 +156,5 @@ btn.onclick = async () => {
 
 </body>
 </html>
+
 
