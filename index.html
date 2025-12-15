@@ -49,9 +49,6 @@ pre {
 <pre id="log"></pre>
 
 <script type="module">
-/* ============================================================
-   VISUAL LOGGING (NO DEVTOOLS REQUIRED)
-============================================================ */
 const logBox = document.getElementById("log");
 const stateBox = document.getElementById("state");
 const btn = document.getElementById("btn");
@@ -66,9 +63,7 @@ function state(msg, cls="") {
   log("STATE → " + msg);
 }
 
-/* ============================================================
-   GLOBAL TRAPS (CATCH HARD FAILURES)
-============================================================ */
+/* ---------- GLOBAL ERROR TRAPS ---------- */
 window.onerror = (msg) => {
   state("JS Runtime Error", "fail");
   log("window.onerror → " + msg);
@@ -78,73 +73,77 @@ window.onunhandledrejection = (e) => {
   log("unhandledrejection → " + e.reason);
 };
 
-/* ============================================================
-   HEARTBEAT (PROVES JS IS ALIVE)
-============================================================ */
-let heartbeatId = null;
-function startHeartbeat() {
+/* ---------- HEARTBEAT ---------- */
+let hb;
+function startHB() {
   let n = 0;
-  heartbeatId = setInterval(() => {
-    n++;
-    log("Heartbeat " + n);
-  }, 500);
+  hb = setInterval(() => log("Heartbeat " + (++n)), 500);
 }
-function stopHeartbeat() {
-  clearInterval(heartbeatId);
+function stopHB() {
+  clearInterval(hb);
 }
 
-/* ============================================================
-   MAIN TEST
-============================================================ */
 btn.onclick = async () => {
   btn.disabled = true;
   state("Button clicked");
   log("Click registered");
-
-  startHeartbeat();
+  startHB();
 
   try {
-    // Force UI repaint
     await new Promise(r => setTimeout(r, 100));
 
     state("Importing Transformers.js…");
-    log("Before dynamic import");
-
     const { pipeline, env } =
       await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
 
     state("Transformers imported");
 
-    /* ---------- SAFEST POSSIBLE SETTINGS ---------- */
+    /* ---------- DEFENSIVE BACKEND CONFIG ---------- */
+    log("Configuring backends safely…");
+
     env.allowLocalModels = false;
     env.useBrowserCache = true;
-    env.backends.webgpu.enabled = false;
-    env.backends.wasm.enabled = true;
-    env.backends.onnx.wasm.numThreads = 1;
+
+    if (env.backends?.webgpu) {
+      env.backends.webgpu.enabled = false;
+      log("WebGPU disabled");
+    } else {
+      log("WebGPU backend not present");
+    }
+
+    if (env.backends?.wasm) {
+      env.backends.wasm.enabled = true;
+      log("WASM enabled");
+    } else {
+      log("WASM backend not present");
+    }
+
+    if (env.backends?.onnx?.wasm) {
+      env.backends.onnx.wasm.numThreads = 1;
+      log("ONNX WASM threads set to 1");
+    }
 
     await new Promise(r => setTimeout(r, 100));
-    state("Creating pipeline…");
-    log("Before pipeline() call");
 
-    /* ---------- SMALLEST VIABLE MODEL ---------- */
+    state("Creating pipeline…");
+
     const generator = await pipeline(
       "text-generation",
       "Xenova/tiny-random-LlamaForCausalLM",
       { device: "cpu" }
     );
 
-    stopHeartbeat();
+    stopHB();
     state("✅ Model Loaded", "ok");
 
     log("Running inference…");
-
-    const out = await generator("Hello", { max_new_tokens: 10 });
+    const out = await generator("Hello", { max_new_tokens: 8 });
     log("Output → " + JSON.stringify(out));
 
-    state("🎉 Case-1 WORKED (extremely rare)", "ok");
+    state("🎉 Case-1 WORKED (rare)", "ok");
 
   } catch (e) {
-    stopHeartbeat();
+    stopHB();
     state("❌ Failed", "fail");
     log("Caught Error → " + (e.message || e));
   } finally {
@@ -153,5 +152,7 @@ btn.onclick = async () => {
 };
 </script>
 
+
 </body>
 </html>
+
