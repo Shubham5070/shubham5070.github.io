@@ -3,147 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hybrid Voice Chat Test</title>
+    <title>Fully Local LLM Voice Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f4f9; }
-        h1 { color: #333; }
+        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
         button {
-            padding: 15px 30px;
-            font-size: 18px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            margin-top: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 15px 30px; font-size: 18px; background-color: #3498db; color: white; border: none;
+            border-radius: 50px; cursor: pointer; margin-top: 20px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
-        button:hover { background-color: #0056b3; }
-        #output {
-            margin-top: 30px;
-            padding: 15px;
-            border: 1px solid #ccc;
-            background-color: white;
-            border-radius: 8px;
-            min-height: 50px;
-            text-align: left;
-        }
-        .status { font-weight: bold; margin-top: 15px; color: #666; }
+        #output { margin-top: 30px; padding: 15px; border: 1px solid #ccc; background-color: white; border-radius: 8px; min-height: 80px; text-align: left; }
+        .status { font-weight: bold; margin-top: 15px; color: #e74c3c; }
+        .user-text { color: #2980b9; }
+        .bot-text { color: #27ae60; }
     </style>
 </head>
 <body>
 
-    <h1>Restaurant Voice Cart Test</h1>
-    <div class="status" id="status">Ready. Click the button to speak your order.</div>
-    <button onclick="startListening()">Start Listening</button>
+    <h1>🧠 Local LLM Test</h1>
+    <div class="status" id="status">Loading model... Please wait.</div>
+    <button id="listenButton" onclick="startListening()" disabled>Tap to Speak Order</button>
     <div id="output"></div>
 
     <script>
-        // --- 1. SET UP SPEECH RECOGNITION (STT) ---
+        // --- CONFIGURATION ---
+        const MODEL_ID = 'Xenova/qwen2-0.5b-instruct-onnx'; // Small, optimized model for browser
+        const MAX_NEW_TOKENS = 50;
 
-        // Check for browser compatibility (using webkit prefix for wider support)
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        // --- GLOBAL VARIABLES & INITIAL LOAD ---
+        let generator = null;
         const statusDiv = document.getElementById('status');
-        const outputDiv = document.getElementById('output');
+        const listenButton = document.getElementById('listenButton');
 
-        if (!SpeechRecognition) {
-            statusDiv.textContent = "Speech Recognition not supported in this browser. Please use Chrome or Safari on mobile.";
-        } else {
+        async function loadLLM() {
+            try {
+                statusDiv.textContent = `Downloading and loading ${MODEL_ID}... (Wait time depends on your internet speed: 30-120 seconds)`;
+                
+                // 1. Download and load the model using Transformers.js
+                generator = await transformers.pipeline(
+                    "text-generation", 
+                    MODEL_ID, 
+                    // Use WebGPU if available, fallback to WebAssembly (Wasm/CPU)
+                    { device: "webgpu" } 
+                );
+
+                statusDiv.textContent = "✅ Model loaded successfully. Click to speak.";
+                listenButton.disabled = false;
+            } catch (error) {
+                statusDiv.textContent = "❌ Error loading model. Check console for details. (Try updating your browser)";
+                console.error("LLM Load Error:", error);
+            }
+        }
+
+        // Start model loading immediately
+        loadLLM(); 
+
+        // --- STT SETUP (Native Browser API) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
-            recognition.lang = 'en-US';        // Set the language for recognition
-            recognition.continuous = false;    // Stops after the user pauses
-            recognition.interimResults = false; // Only returns the final, confirmed result
+            recognition.lang = 'en-US';
+            recognition.continuous = false;
+            recognition.interimResults = false;
 
             recognition.onstart = () => {
-                statusDiv.textContent = "Listening... Say your order now.";
-                outputDiv.textContent = "";
+                statusDiv.textContent = "Listening... Speak now.";
+                listenButton.disabled = true;
             };
 
             recognition.onresult = (event) => {
-                // Get the transcribed text from the final result
                 const transcript = event.results[0][0].transcript;
-                
-                // 1. Display the user's speech
-                outputDiv.innerHTML = `**You said:** ${transcript}<br>`;
-                statusDiv.textContent = "Processing order...";
-                
-                // 2. Simulate the LLM/Server response delay (the network step)
-                setTimeout(() => {
-                    // 3. Simulate the LLM/Server deciding the response (Tool Use simulation)
-                    const serverResponse = simulateLLM(transcript);
-                    outputDiv.innerHTML += `**Bot response:** ${serverResponse}`;
-                    
-                    // 4. Start Text-to-Speech (TTS) for the bot's response
-                    speakResponse(serverResponse);
-                    
-                }, 500); // Simulate a 500ms server round-trip delay
+                output.innerHTML = `<span class="user-text">You said:</span> ${transcript}<br>`;
+                statusDiv.textContent = "Processing order locally...";
+                processOrder(transcript); // Process locally
             };
 
             recognition.onerror = (event) => {
-                statusDiv.textContent = `Error: ${event.error}. Try again.`;
-                console.error('Speech Recognition Error:', event.error);
+                statusDiv.textContent = `Error: ${event.error}. Click to try again.`;
+                listenButton.disabled = false;
             };
 
             recognition.onend = () => {
-                // If it ended without an error, the response will be handled in onresult
-                if (statusDiv.textContent === "Listening... Say your order now.") {
-                     statusDiv.textContent = "No speech detected. Click the button to try again.";
+                if (statusDiv.textContent === "Listening... Speak now.") {
+                     statusDiv.textContent = "No speech detected. Click to try again.";
+                     listenButton.disabled = false;
                 }
             };
             
-            // Expose the function globally so the button can call it
             window.startListening = () => {
-                try {
+                if (generator) {
+                    window.speechSynthesis.cancel(); 
                     recognition.start();
-                } catch (e) {
-                    statusDiv.textContent = "Start failed. Make sure you granted microphone permission.";
-                    console.error(e);
+                } else {
+                    statusDiv.textContent = "Model is not ready yet. Please wait.";
                 }
             };
+        } else {
+            statusDiv.textContent = "❌ Speech Recognition not supported.";
         }
         
-        // --- 2. SET UP TEXT-TO-SPEECH (TTS) ---
+        // --- CORE LLM PROCESSING (Fully Local) ---
 
-        function speakResponse(text) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            
-            // Optional: You can set a specific voice if available
-            // Note: Voices vary widely across OS/browser
-            // utterance.voice = window.speechSynthesis.getVoices().find(v => v.lang === 'en-US');
-            
-            // Set some speaking parameters
-            utterance.rate = 1.1; // A little faster
-            utterance.pitch = 1.0;
-            
-            utterance.onstart = () => {
-                statusDiv.textContent = "Bot is speaking...";
-            };
-            utterance.onend = () => {
-                statusDiv.textContent = "Ready for the next command.";
-            };
+        async function processOrder(transcript) {
+            try {
+                // 1. Format the input for the Instruction-Tuned model (Chat Template)
+                const messages = [
+                    {"role": "system", "content": "You are a fast, local restaurant menu chatbot. Keep your responses short and focus on taking an order."},
+                    {"role": "user", "content": transcript}
+                ];
 
-            window.speechSynthesis.speak(utterance);
+                // 2. Generate the response LOCALLY
+                const outputs = await generator(
+                    messages,
+                    { max_new_tokens: MAX_NEW_TOKENS }
+                );
+
+                // 3. Extract the final response text
+                const llmResponse = outputs[0].generated_text.trim();
+                
+                output.innerHTML += `<span class="bot-text">Bot response:</span> ${llmResponse}`;
+                
+                // 4. TTS (Native Browser API)
+                speakResponse(llmResponse);
+                
+            } catch (error) {
+                const errorMessage = "Local processing error. Try reloading.";
+                output.innerHTML += `<span class="bot-text">Bot response:</span> ${errorMessage}`;
+                speakResponse(errorMessage);
+                console.error("Local LLM Error:", error);
+            }
         }
 
-
-        // --- 3. LLM/TOOL USE SIMULATION (The "Brain" on your server) ---
-
-        function simulateLLM(input) {
-            const lowerInput = input.toLowerCase();
+        // --- NATIVE TTS FUNCTION ---
+        function speakResponse(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.05; 
             
-            if (lowerInput.includes('menu') || lowerInput.includes('what do you have')) {
-                // Tool: get_menu()
-                return "Our specials today are the Butter Chicken and the Veggie Burger. Would you like to hear more?";
-            } else if (lowerInput.includes('chicken') && lowerInput.includes('two')) {
-                // Tool: order_food(item='Chicken', quantity=2)
-                return "Adding two orders of Chicken to your cart. Anything else I can get for you?";
-            } else if (lowerInput.includes('coke') || lowerInput.includes('drink')) {
-                // Tool: order_food(item='Coke', quantity=1)
-                return "One Coke has been added. Your order is confirmed for pickup in 15 minutes.";
-            } else {
-                // Default LLM response
-                return "I'm sorry, I didn't catch that. Could you please state your order clearly, or ask for the menu?";
-            }
+            utterance.onstart = () => { statusDiv.textContent = "Bot is speaking..."; };
+            utterance.onend = () => { 
+                statusDiv.textContent = "Conversation complete. Click to start a new order.";
+                listenButton.disabled = false;
+            };
+            window.speechSynthesis.speak(utterance);
         }
     </script>
 </body>
