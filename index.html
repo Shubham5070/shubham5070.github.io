@@ -26,7 +26,6 @@
 
     <script>
         // --- CONFIGURATION ---
-        // Using a highly stable model name that defaults to ONNX/WASM for better compatibility
         const MODEL_ID = 'Xenova/Qwen2-0.5B-Instruct'; 
         const MAX_NEW_TOKENS = 50;
 
@@ -39,18 +38,16 @@
             try {
                 statusDiv.textContent = `Downloading and loading ${MODEL_ID} using WASM... (This may take a minute.)`;
                 
-                // Set environment to maximize stability
-                // This explicitly requests the CPU/WASM backend and forces quantization (q8)
+                // Set environment to maximize stability (Explicitly bypasses WebGPU)
                 transformers.env.backends.onnx.wasm.proxy = false;
 
                 generator = await transformers.pipeline(
                     "text-generation", 
                     MODEL_ID, 
                     { 
-                        device: "cpu", 
+                        device: "cpu", // Forces CPU usage
                         quantized: true, 
                         dtype: "q8",
-                        // Pass specific environment settings during pipeline creation
                         env: transformers.env
                     } 
                 );
@@ -63,10 +60,9 @@
             }
         }
 
-        // Start model loading immediately
         loadLLM(); 
 
-        // --- STT and TTS Logic (REMAINS THE SAME) ---
+        // --- STT and TTS Logic ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (SpeechRecognition) {
