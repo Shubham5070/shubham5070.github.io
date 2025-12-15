@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Case-1 FINAL — Browser-Only LLM (gpt2-medium)</title>
+<title>Browser-Only AI Menu (Case-1)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
 <style>
@@ -12,172 +12,154 @@ body {
   color: #e5e7eb;
   padding: 20px;
 }
-button {
-  padding: 12px 18px;
+h2 { margin-bottom: 6px; }
+input, button {
+  padding: 10px;
   font-size: 16px;
-  cursor: pointer;
 }
-#state {
-  margin-top: 12px;
-  font-weight: bold;
-}
+button { cursor: pointer; }
+#state { margin-top: 10px; font-weight: bold; }
 pre {
   background: #020617;
   border: 1px solid #1e293b;
   padding: 10px;
-  margin-top: 15px;
-  max-height: 340px;
+  margin-top: 10px;
+  max-height: 260px;
   overflow-y: auto;
   font-size: 13px;
 }
 .ok { color: #22c55e; }
 .fail { color: #ef4444; }
+.menu-item {
+  padding: 8px;
+  border-bottom: 1px solid #1e293b;
+}
 </style>
 </head>
 
 <body>
 
-<h2>🧪 Case-1: Browser-Only LLM (Level-1 Capability)</h2>
-<p>Model: <b>Xenova/gpt2-medium (ONNX, CPU)</b></p>
+<h2>🍽️ AI Menu (Browser-Only)</h2>
+<p><b>Model:</b> Xenova/distilgpt2 (intent parsing only)</p>
 
-<button id="btn">Load Local LLM</button>
+<input id="userInput" placeholder="e.g. show veg spicy items" size="35"/>
+<button id="sendBtn">Ask</button>
 
 <div id="state">Idle</div>
 <pre id="log"></pre>
 
+<h3>Menu</h3>
+<div id="menu"></div>
+
 <script type="module">
 /* ============================================================
-   BASIC UI LOGGING
+   MENU DATA (DETERMINISTIC)
 ============================================================ */
-const btn = document.getElementById("btn");
+const MENU = [
+  { name: "Paneer Pizza", veg: true, spicy: false, price: 250 },
+  { name: "Veg Burger", veg: true, spicy: false, price: 120 },
+  { name: "Spicy Fries", veg: true, spicy: true, price: 100 },
+  { name: "Chicken Pizza", veg: false, spicy: true, price: 300 },
+  { name: "Coke", veg: true, spicy: false, price: 60 }
+];
+
+/* ============================================================
+   UI HELPERS
+============================================================ */
 const stateBox = document.getElementById("state");
 const logBox = document.getElementById("log");
+const menuBox = document.getElementById("menu");
 
-function log(msg) {
-  logBox.textContent += msg + "\n";
-  logBox.scrollTop = logBox.scrollHeight;
-}
 function state(msg, cls="") {
   stateBox.textContent = msg;
   stateBox.className = cls;
   log("STATE → " + msg);
 }
-
-/* ============================================================
-   GLOBAL ERROR TRAPS
-============================================================ */
-window.onerror = (msg) => {
-  state("JS Runtime Error", "fail");
-  log("window.onerror → " + msg);
-};
-window.onunhandledrejection = (e) => {
-  state("Unhandled Promise Rejection", "fail");
-  log("unhandledrejection → " + e.reason);
-};
-
-/* ============================================================
-   HEARTBEAT (PROVES JS IS ALIVE)
-============================================================ */
-let hb;
-function startHB() {
-  let n = 0;
-  hb = setInterval(() => log("Heartbeat " + (++n)), 500);
+function log(msg) {
+  logBox.textContent += msg + "\n";
+  logBox.scrollTop = logBox.scrollHeight;
 }
-function stopHB() {
-  clearInterval(hb);
+function renderMenu(items) {
+  menuBox.innerHTML = "";
+  if (items.length === 0) {
+    menuBox.innerHTML = "<p>No items match.</p>";
+    return;
+  }
+  items.forEach(i => {
+    menuBox.innerHTML +=
+      `<div class="menu-item">${i.name} – ₹${i.price}</div>`;
+  });
 }
 
 /* ============================================================
-   MAIN TEST
+   LOAD MENU INITIALLY
 ============================================================ */
-btn.onclick = async () => {
-  btn.disabled = true;
-  state("Button clicked");
-  log("Click registered");
-  startHB();
+renderMenu(MENU);
 
-  try {
-    await new Promise(r => setTimeout(r, 100));
+/* ============================================================
+   LOAD LLM
+============================================================ */
+state("Loading LLM…");
 
-    state("Importing Transformers.js…");
-    const { pipeline, env } =
-      await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
+const { pipeline, env } =
+  await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
 
-    state("Transformers imported");
+env.allowLocalModels = false;
+env.useBrowserCache = true;
 
-    /* ---------- SAFE BACKEND CONFIG ---------- */
-    env.allowLocalModels = false;
-    env.useBrowserCache = true;
+const llm = await pipeline(
+  "text-generation",
+  "Xenova/distilgpt2",
+  { device: "cpu" }
+);
 
-    if (env.backends?.webgpu) {
-      env.backends.webgpu.enabled = false;
-      log("WebGPU disabled");
-    } else {
-      log("WebGPU backend not present");
-    }
+state("✅ LLM Ready", "ok");
 
-    if (env.backends?.wasm) {
-      env.backends.wasm.enabled = true;
-      log("WASM enabled");
-    } else {
-      log("WASM backend not present");
-    }
+/* ============================================================
+   SIMPLE INTENT PARSER (LLM → TEXT → RULES)
+============================================================ */
+function parseIntent(text) {
+  text = text.toLowerCase();
+  return {
+    veg: text.includes("veg"),
+    spicy: text.includes("spicy"),
+    cheap: text.includes("cheap") || text.includes("low price")
+  };
+}
 
-    if (env.backends?.onnx?.wasm) {
-      env.backends.onnx.wasm.numThreads = 1;
-      log("ONNX WASM threads = 1");
-    }
+/* ============================================================
+   HANDLE USER QUERY
+============================================================ */
+document.getElementById("sendBtn").onclick = async () => {
+  const query = document.getElementById("userInput").value;
+  if (!query) return;
 
-    await new Promise(r => setTimeout(r, 100));
+  state("Understanding request…");
 
-    /* ---------- LOAD MODEL ---------- */
-    state("Creating pipeline…");
-
-    const generator = await pipeline(
-      "text-generation",
-      "Xenova/gpt2-medium",
-      { device: "cpu" }
-    );
-
-    stopHB();
-    state("✅ Model Loaded", "ok");
-
-    /* ---------- ORDER PARSING TEST ---------- */
-    log("Running order-parsing test…");
-
-    const prompt = `
-You are a food order parser.
-
-Return ONLY JSON.
-
-Menu:
-- Paneer Pizza
-- Veg Burger
-- French Fries
-- Coke
-
-User: I want two paneer pizzas and one coke
-
-JSON:
+  const prompt = `
+User request: "${query}"
+Extract keywords like veg, spicy, cheap.
+Keywords:
 `;
 
-    const out = await generator(prompt, {
-      max_new_tokens: 100,
-      temperature: 0.2
-    });
+  const out = await llm(prompt, {
+    max_new_tokens: 40,
+    temperature: 0.1
+  });
 
-    log("MODEL OUTPUT:");
-    log(out[0].generated_text);
+  log("LLM RAW OUTPUT:");
+  log(out[0].generated_text);
 
-    state("🎉 Case-1 Level-1 Test Completed", "ok");
+  const intent = parseIntent(out[0].generated_text);
 
-  } catch (e) {
-    stopHB();
-    state("❌ Failed", "fail");
-    log("Caught Error → " + (e.message || e));
-  } finally {
-    btn.disabled = false;
-  }
+  let filtered = MENU;
+
+  if (intent.veg) filtered = filtered.filter(i => i.veg);
+  if (intent.spicy) filtered = filtered.filter(i => i.spicy);
+  if (intent.cheap) filtered = filtered.filter(i => i.price <= 150);
+
+  renderMenu(filtered);
+  state("✅ Menu updated", "ok");
 };
 </script>
 
