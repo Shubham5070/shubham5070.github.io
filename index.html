@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fully Local LLM Voice Test</title>
+    <title>T1: Fully Local LLM Voice Test (WASM Fix)</title>
     <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f0f8ff; }
@@ -19,14 +19,15 @@
 </head>
 <body>
 
-    <h1>🧠 Local LLM Test</h1>
+    <h1>🧠 Local LLM Test (WASM/CPU)</h1>
     <div class="status" id="status">Loading model... Please wait.</div>
     <button id="listenButton" onclick="startListening()" disabled>Tap to Speak Order</button>
     <div id="output"></div>
 
     <script>
         // --- CONFIGURATION ---
-        const MODEL_ID = 'Xenova/qwen2-0.5b-instruct-onnx'; // Small, optimized model for browser
+        // Using a highly stable model name that defaults to ONNX/WASM for better compatibility
+        const MODEL_ID = 'Xenova/Qwen2-0.5B-Instruct'; 
         const MAX_NEW_TOKENS = 50;
 
         // --- GLOBAL VARIABLES & INITIAL LOAD ---
@@ -36,20 +37,28 @@
 
         async function loadLLM() {
             try {
-                statusDiv.textContent = `Downloading and loading ${MODEL_ID}... (Wait time depends on your internet speed: 30-120 seconds)`;
+                statusDiv.textContent = `Downloading and loading ${MODEL_ID} using WASM... (This may take a minute.)`;
                 
-                // 1. Download and load the model using Transformers.js
+                // Set environment to maximize stability
+                // This explicitly requests the CPU/WASM backend and forces quantization (q8)
+                transformers.env.backends.onnx.wasm.proxy = false;
+
                 generator = await transformers.pipeline(
                     "text-generation", 
                     MODEL_ID, 
-                    // Use WebGPU if available, fallback to WebAssembly (Wasm/CPU)
-                    { device: "webgpu" } 
+                    { 
+                        device: "cpu", 
+                        quantized: true, 
+                        dtype: "q8",
+                        // Pass specific environment settings during pipeline creation
+                        env: transformers.env
+                    } 
                 );
 
                 statusDiv.textContent = "✅ Model loaded successfully. Click to speak.";
                 listenButton.disabled = false;
             } catch (error) {
-                statusDiv.textContent = "❌ Error loading model. Check console for details. (Try updating your browser)";
+                statusDiv.textContent = "❌ ERROR: Model failed to load. Check console for advanced error details. This setup may not be possible on your device.";
                 console.error("LLM Load Error:", error);
             }
         }
@@ -57,7 +66,7 @@
         // Start model loading immediately
         loadLLM(); 
 
-        // --- STT SETUP (Native Browser API) ---
+        // --- STT and TTS Logic (REMAINS THE SAME) ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (SpeechRecognition) {
@@ -75,12 +84,13 @@
                 const transcript = event.results[0][0].transcript;
                 output.innerHTML = `<span class="user-text">You said:</span> ${transcript}<br>`;
                 statusDiv.textContent = "Processing order locally...";
-                processOrder(transcript); // Process locally
+                processOrder(transcript);
             };
 
             recognition.onerror = (event) => {
                 statusDiv.textContent = `Error: ${event.error}. Click to try again.`;
                 listenButton.disabled = false;
+                window.speechSynthesis.cancel(); 
             };
 
             recognition.onend = () => {
@@ -102,28 +112,20 @@
             statusDiv.textContent = "❌ Speech Recognition not supported.";
         }
         
-        // --- CORE LLM PROCESSING (Fully Local) ---
-
         async function processOrder(transcript) {
             try {
-                // 1. Format the input for the Instruction-Tuned model (Chat Template)
                 const messages = [
                     {"role": "system", "content": "You are a fast, local restaurant menu chatbot. Keep your responses short and focus on taking an order."},
                     {"role": "user", "content": transcript}
                 ];
 
-                // 2. Generate the response LOCALLY
                 const outputs = await generator(
                     messages,
                     { max_new_tokens: MAX_NEW_TOKENS }
                 );
 
-                // 3. Extract the final response text
                 const llmResponse = outputs[0].generated_text.trim();
-                
                 output.innerHTML += `<span class="bot-text">Bot response:</span> ${llmResponse}`;
-                
-                // 4. TTS (Native Browser API)
                 speakResponse(llmResponse);
                 
             } catch (error) {
@@ -134,7 +136,6 @@
             }
         }
 
-        // --- NATIVE TTS FUNCTION ---
         function speakResponse(text) {
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 1.05; 
