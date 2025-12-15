@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Case-1 FINAL PROOF – Browser-Only LLM</title>
+<title>Case-1 FINAL — Browser-Only LLM (gpt2-medium)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
 <style>
@@ -26,22 +26,19 @@ pre {
   border: 1px solid #1e293b;
   padding: 10px;
   margin-top: 15px;
-  max-height: 320px;
+  max-height: 340px;
   overflow-y: auto;
   font-size: 13px;
 }
-.fail {
-  color: #ef4444;
-}
-.ok {
-  color: #22c55e;
-}
+.ok { color: #22c55e; }
+.fail { color: #ef4444; }
 </style>
 </head>
 
 <body>
 
-<h2>🧪 Case-1: Browser-Only LLM (FINAL PROOF)</h2>
+<h2>🧪 Case-1: Browser-Only LLM (Level-1 Capability)</h2>
+<p>Model: <b>Xenova/gpt2-medium (ONNX, CPU)</b></p>
 
 <button id="btn">Load Local LLM</button>
 
@@ -49,9 +46,12 @@ pre {
 <pre id="log"></pre>
 
 <script type="module">
-const logBox = document.getElementById("log");
-const stateBox = document.getElementById("state");
+/* ============================================================
+   BASIC UI LOGGING
+============================================================ */
 const btn = document.getElementById("btn");
+const stateBox = document.getElementById("state");
+const logBox = document.getElementById("log");
 
 function log(msg) {
   logBox.textContent += msg + "\n";
@@ -63,7 +63,9 @@ function state(msg, cls="") {
   log("STATE → " + msg);
 }
 
-/* ---------- GLOBAL ERROR TRAPS ---------- */
+/* ============================================================
+   GLOBAL ERROR TRAPS
+============================================================ */
 window.onerror = (msg) => {
   state("JS Runtime Error", "fail");
   log("window.onerror → " + msg);
@@ -73,7 +75,9 @@ window.onunhandledrejection = (e) => {
   log("unhandledrejection → " + e.reason);
 };
 
-/* ---------- HEARTBEAT ---------- */
+/* ============================================================
+   HEARTBEAT (PROVES JS IS ALIVE)
+============================================================ */
 let hb;
 function startHB() {
   let n = 0;
@@ -83,6 +87,9 @@ function stopHB() {
   clearInterval(hb);
 }
 
+/* ============================================================
+   MAIN TEST
+============================================================ */
 btn.onclick = async () => {
   btn.disabled = true;
   state("Button clicked");
@@ -98,9 +105,7 @@ btn.onclick = async () => {
 
     state("Transformers imported");
 
-    /* ---------- DEFENSIVE BACKEND CONFIG ---------- */
-    log("Configuring backends safely…");
-
+    /* ---------- SAFE BACKEND CONFIG ---------- */
     env.allowLocalModels = false;
     env.useBrowserCache = true;
 
@@ -120,29 +125,51 @@ btn.onclick = async () => {
 
     if (env.backends?.onnx?.wasm) {
       env.backends.onnx.wasm.numThreads = 1;
-      log("ONNX WASM threads set to 1");
+      log("ONNX WASM threads = 1");
     }
 
     await new Promise(r => setTimeout(r, 100));
 
+    /* ---------- LOAD MODEL ---------- */
     state("Creating pipeline…");
-    
+
     const generator = await pipeline(
       "text-generation",
-      "Xenova/phi-2",
+      "Xenova/gpt2-medium",
       { device: "cpu" }
     );
-
-
 
     stopHB();
     state("✅ Model Loaded", "ok");
 
-    log("Running inference…");
-    const out = await generator("Hello", { max_new_tokens: 8 });
-    log("Output → " + JSON.stringify(out));
+    /* ---------- ORDER PARSING TEST ---------- */
+    log("Running order-parsing test…");
 
-    state("🎉 Case-1 WORKED (rare)", "ok");
+    const prompt = `
+You are a food order parser.
+
+Return ONLY JSON.
+
+Menu:
+- Paneer Pizza
+- Veg Burger
+- French Fries
+- Coke
+
+User: I want two paneer pizzas and one coke
+
+JSON:
+`;
+
+    const out = await generator(prompt, {
+      max_new_tokens: 100,
+      temperature: 0.2
+    });
+
+    log("MODEL OUTPUT:");
+    log(out[0].generated_text);
+
+    state("🎉 Case-1 Level-1 Test Completed", "ok");
 
   } catch (e) {
     stopHB();
@@ -154,9 +181,5 @@ btn.onclick = async () => {
 };
 </script>
 
-
 </body>
 </html>
-
-
-
